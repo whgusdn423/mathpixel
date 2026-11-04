@@ -1,0 +1,226 @@
+rules_version = '2';
+
+// 수학 픽셀 스터디 · Firestore 보안 규칙
+// Firebase 콘솔 → Firestore Database → 규칙 탭에 이 파일 내용을 통째로 붙여넣고 [게시]를 누르세요.
+// 학생은 자기 기록만, 정해진 방식(타이머, 토벌, 상점)으로만 바꿀 수 있습니다.
+// 선생님 계정(admin@mathpixel.example.com)은 모든 데이터를 읽고 고칠 수 있습니다.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- 공통 ----------
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return request.auth != null && request.auth.token.email == 'admin@mathpixel.example.com'; }
+    function emailOf(sid, g) { return sid + '-' + string(g) + '@mathpixel.example.com'; }
+    function mySid() { return request.auth.token.email.split('@')[0].split('-')[0]; }
+    function rd(pth) { return get(pth).data; }
+
+    // 시간 (한국 시간 = UTC+9)
+    function nowMs() { return request.time.toMillis(); }
+    function day() { return math.floor((nowMs() + 32400000) / 86400000); }
+    function wf() { return 'w' + string(math.floor((day() + 3) / 7)); }
+    function restricted() {
+      let k = nowMs() + 32400000;
+      let dow = (math.floor(k / 86400000) + 4) % 7;
+      let h = math.floor((k % 86400000) / 3600000);
+      return dow >= 1 && dow <= 5 && h >= 2 && h < 8;
+    }
+
+    function N() { return request.resource.data; }
+    function P() { return resource.data; }
+    function chg() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function op() { return request.resource.data.get('op', ''); }
+
+    // ---------- 공부 타이머 ----------
+    // 마지막 신호(ping) 뒤 4분까지만 공부 시간으로 인정
+    function segMs() {
+      let a = nowMs();
+      let b = P().ping.toMillis() + 240000;
+      let s = (a < b ? a : b) - P().run.toMillis();
+      return s > 0 ? s : 0;
+    }
+    function tStart() {
+      return chg().hasOnly(['op', 'st', 'run', 'ping', 'acc'])
+        && P().st != 'run' && N().st == 'run'
+        && N().run == request.time && N().ping == request.time
+        && N().acc == (P().st == 'pause' ? P().acc : 0)
+        && !restricted();
+    }
+    // 신호가 4분 넘게 끊겼던 타이머는 신호로 되살릴 수 없음 (일시정지 후 다시 시작해야 함)
+    function tPing() {
+      return chg().hasOnly(['op', 'ping']) && P().st == 'run' && N().ping == request.time && !restricted()
+        && nowMs() <= P().ping.toMillis() + 240000;
+    }
+    function tPause() {
+      return chg().hasOnly(['op', 'st', 'acc', 'ping'])
+        && P().st == 'run' && N().st == 'pause' && N().ping == request.time
+        && N().acc is int && N().acc >= P().acc
+        && (N().acc - P().acc) * 1000 <= segMs();
+    }
+    // 10분에 1P, 하루 최대 30P
+    function creditOk() {
+      let pts = N().study - P().study;
+      let total = P().acc * 1000 + (P().st == 'run' ? segMs() : 0);
+      let today = day();
+      return pts is int && pts >= 0 && pts * 600000 <= total
+        && N().all == P().all + pts
+        && N().get(wf(), 0) == P().get(wf(), 0) + pts
+        && N().sd == today
+        && N().sp == (P().sd == today ? P().sp : 0) + pts
+        && N().sp <= 30;
+    }
+    function tStop() {
+      return chg().hasOnly(['op', 'st', 'acc', 'study', 'all', 'sd', 'sp', wf()])
+        && (P().st == 'run' || P().st == 'pause') && N().st == '' && N().acc == 0
+        && creditOk();
+    }
+    // 평일 02:00에 켜져 있던 타이머 → 경고 1회 (3회째에는 공부 포인트 0)
+    function zeroOk() {
+      return N().study == 0 && N().all == P().math && N().sd == P().sd && N().sp == P().sp
+        && N().get(wf(), 0) == P().get(wf(), 0);
+    }
+    function tWarn() {
+      return chg().hasOnly(['op', 'st', 'acc', 'study', 'all', 'sd', 'sp', 'warn', wf()])
+        && (P().st == 'run' || P().st == 'pause') && N().st == '' && N().acc == 0
+        && N().warn == P().warn + 1
+        && (N().warn == 3 ? zeroOk() : creditOk());
+    }
+
+    // ---------- 토벌(문제) ----------
+    // 문제를 꺼내는 순간 1마리로 셈 (하루 10마리), 난이도는 현재 단계 이하만
+    function qShow() {
+      let c = N().cur;
+      let today = day();
+      return chg().hasOnly(['op', 'cur', 'qd', 'qn', 'ql'])
+        && P().cur == null
+        && c is map && c.keys().hasOnly(['q', 'lv', 'c']) && c.q is string && c.c == 0 && c.lv is int
+        && N().qd == today
+        && (P().qd == today ? (N().qn == P().qn + 1 && N().ql == P().ql) : (N().qn == 1 && N().ql == 1))
+        && N().qn <= 10
+        && c.lv >= 1 && c.lv <= N().ql
+        && rd(/databases/$(database)/documents/answers/$(c.q)).lv == c.lv;
+    }
+    // 답 고르기 (정답 여부와 상관없이 저장 → 그다음에만 정답을 볼 수 있음)
+    function qAns() {
+      let c = N().cur;
+      return chg().hasOnly(['op', 'cur'])
+        && P().cur != null && P().cur.c == 0
+        && c is map && c.keys().hasOnly(['q', 'lv', 'c'])
+        && c.q == P().cur.q && c.lv == P().cur.lv && c.c in [1, 2, 3, 4];
+    }
+    // 채점: 정답이면 ★3P ★★5P ★★★8P, 다음 난이도 ±1
+    function qGrade() {
+      let c = P().cur;
+      let ok = c.c == rd(/databases/$(database)/documents/answers/$(c.q)).ans;
+      let pts = ok ? (c.lv == 1 ? 3 : (c.lv == 2 ? 5 : 8)) : 0;
+      let nl = ok ? (c.lv >= 3 ? 3 : c.lv + 1) : (c.lv <= 1 ? 1 : c.lv - 1);
+      return chg().hasOnly(['op', 'cur', 'ql', 'math', 'all', wf()])
+        && c != null && c.c != 0 && N().cur == null
+        && N().ql == nl
+        && N().math == P().math + pts && N().all == P().all + pts
+        && N().get(wf(), 0) == P().get(wf(), 0) + pts;
+    }
+    // 선생님이 지운 문제가 걸려 있으면 비우기
+    function qDrop() {
+      return chg().hasOnly(['op', 'cur']) && P().cur != null && N().cur == null
+        && !exists(/databases/$(database)/documents/answers/$(P().cur.q));
+    }
+
+    // ---------- 상점 ----------
+    function buy() {
+      let o = N().owned;
+      let x = o[o.size() - 1];
+      return chg().hasOnly(['op', 'owned', 'spent'])
+        && o.size() == P().owned.size() + 1 && o == P().owned.concat([x]) && !(x in P().owned)
+        && N().spent == P().spent + rd(/databases/$(database)/documents/config/shop).p[x]
+        && P().study + P().math - N().spent >= 0;
+    }
+    function equip() {
+      let e = N().eq;
+      return chg().hasOnly(['op', 'eq']) && e is map
+        && e.keys().hasOnly(['char', 'shape', 'hat', 'glasses', 'cloth', 'bg', 'prop'])
+        && P().owned.concat(['sh0', 'bg0']).hasAll(e.values());
+    }
+
+    function ownerOp() {
+      return (op() == 'tstart' && tStart())
+        || (op() == 'tping' && tPing())
+        || (op() == 'tpause' && tPause())
+        || (op() == 'tstop' && tStop())
+        || (op() == 'twarn' && tWarn())
+        || (op() == 'qshow' && qShow())
+        || (op() == 'qans' && qAns())
+        || (op() == 'qgrade' && qGrade())
+        || (op() == 'qdrop' && qDrop())
+        || (op() == 'buy' && buy())
+        || (op() == 'equip' && equip());
+    }
+
+    // ---------- 가입 ----------
+    function nickOk(sid) {
+      let n = N().nick;
+      return n is string && n.size() >= 1 && n.size() <= 24
+        && getAfter(/databases/$(database)/documents/nicks/$(n)).data.sid == sid;
+    }
+    // 처음 가입: 기본값으로만 만들 수 있음
+    function newStudent(sid) {
+      let r = rd(/databases/$(database)/documents/roster/$(sid));
+      let d = N();
+      return signedIn() && request.auth.token.email == emailOf(sid, r.g)
+        && d.keys().hasOnly(['uid', 'nick', 'cls', 'study', 'math', 'spent', 'all', 'warn', 'owned', 'eq', 'st', 'run', 'ping', 'acc', 'qd', 'qn', 'ql', 'cur', 'sd', 'sp', 'op'])
+        && d.uid == request.auth.uid && d.cls == r.cls && d.op == 'join'
+        && d.study == 0 && d.math == 0 && d.spent == 0 && d.all == 0 && d.warn == 0
+        && d.owned == ['n2', 'bg0', 'sh0'] && d.eq == {'char': 'n2', 'bg': 'bg0'}
+        && d.st == '' && d.run == null && d.ping == null && d.acc == 0
+        && d.qd == 0 && d.qn == 0 && d.ql == 1 && d.cur == null && d.sd == 0 && d.sp == 0
+        && nickOk(sid);
+    }
+    // 기록이 이미 있는 학번(옮겨 온 학생, 비밀번호 초기화한 학생)이 다시 가입
+    function claim(sid) {
+      return signedIn() && P().uid == null
+        && request.auth.token.email == emailOf(sid, rd(/databases/$(database)/documents/roster/$(sid)).g)
+        && N().uid == request.auth.uid && op() == 'claim'
+        && (P().nick != '' ? chg().hasOnly(['op', 'uid']) : (chg().hasOnly(['op', 'uid', 'nick']) && nickOk(sid)));
+    }
+
+    // ---------- 컬렉션별 규칙 ----------
+    match /users/{sid} {
+      allow read: if signedIn();
+      allow create: if isAdmin() || newStudent(sid);
+      allow update: if isAdmin() || (signedIn() && P().uid == request.auth.uid && ownerOp()) || claim(sid);
+      allow delete: if isAdmin();
+    }
+    match /roster/{sid} {
+      allow get: if true;
+      allow list, create, delete: if isAdmin();
+      allow update: if isAdmin() || (signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['c'])
+        && resource.data.c == false && request.resource.data.c == true
+        && getAfter(/databases/$(database)/documents/users/$(sid)).data.uid == request.auth.uid);
+    }
+    match /nicks/{nick} {
+      allow get: if signedIn();
+      allow list, update, delete: if isAdmin();
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.keys().hasOnly(['sid']) && request.resource.data.sid is string
+        && getAfter(/databases/$(database)/documents/users/$(request.resource.data.sid)).data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.resource.data.sid)).data.nick == nick);
+    }
+    // 정답: 학생은 지금 답을 고른 문제의 정답만 볼 수 있음
+    match /answers/{qid} {
+      allow get: if isAdmin() || (signedIn()
+        && rd(/databases/$(database)/documents/users/$(mySid())).uid == request.auth.uid
+        && rd(/databases/$(database)/documents/users/$(mySid())).cur.q == qid
+        && rd(/databases/$(database)/documents/users/$(mySid())).cur.c != 0);
+      allow list, create, update, delete: if isAdmin();
+    }
+    match /qsets/{setId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /config/{cfg} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

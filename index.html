@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>수학 픽셀 스터디</title>
+<meta name="theme-color" content="#ffd84d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#2b2b3a;--bg:#fff6d9;--pk:#ff8fb8;--bl:#7cc7ff;--gr:#8fe3a0;--yl:#ffd84d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px 'DotGothic16',monospace}
+#app{max-width:480px;margin:auto;padding:10px 10px 90px}body.pc #app{max-width:920px}
+.box{background:#fff;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:10px;margin:10px 0}
+.top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px}
+button{font:inherit;background:var(--yl);color:var(--ink);border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:7px 11px;margin:3px;cursor:pointer}
+button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}button:disabled{opacity:.45}
+body.busy button{pointer-events:none;opacity:.7}body.busy nav button{pointer-events:auto;opacity:1}
+input:not([type=checkbox]),textarea{font:inherit;width:100%;border:3px solid var(--ink);padding:8px;margin:4px 0}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#fff;border-top:3px solid var(--ink);z-index:5;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;margin:4px 2px;padding:8px 0;font-size:14px}nav button.on{background:var(--pk)}
+.hint{font-size:13px;color:#555}
+.qrbox{display:flex;gap:12px;align-items:center}.qrbox .qr{flex:none;line-height:0;cursor:pointer;border:3px solid var(--ink)}
+.url{word-break:break-all;color:#555}
+.qrfull{position:fixed;inset:0;background:#fff;z-index:30;display:flex;align-items:center;justify-content:center;text-align:center;font-size:22px}
+.ch{position:relative;width:140px;height:170px;margin:auto;border:3px solid var(--ink);overflow:hidden}
+.ch .bw{position:absolute;left:30px;top:46px;width:80px;height:104px;filter:drop-shadow(3px 0 0 #2b2b3a) drop-shadow(-3px 0 0 #2b2b3a) drop-shadow(0 3px 0 #2b2b3a) drop-shadow(0 -3px 0 #2b2b3a)}
+.ch .bd{position:relative;width:100%;height:100%;overflow:hidden}.ch .cl{position:absolute;left:0;right:0;bottom:0;height:22px}
+.ch .gy{position:absolute;left:30px;top:86px;width:80px;text-align:center;font-size:30px;line-height:1.1}
+.ch .fc{position:absolute;display:block}.ey{top:58px;width:6px;height:9px;background:var(--ink)}.nz{left:68px;top:70px;width:5px;height:5px;background:#e8647c}
+.mo{left:57px;top:76px;width:26px;height:8px;border:3px solid var(--ink);border-top:0;border-radius:0 0 13px 13px}
+.ch i{position:absolute;font-style:normal}.hat{left:50px;top:6px;font-size:38px}.gl{left:50px;top:42px;font-size:36px}.pr{right:4px;bottom:6px;font-size:30px}
+.mini{width:46px;height:56px;overflow:hidden;position:relative}.mini .ch{transform:scale(.33);transform-origin:0 0;position:absolute;left:0;top:0;margin:0}
+select{font:inherit;width:100%;border:3px solid var(--ink);padding:8px;margin:4px 0;background:#fff}
+.grid{display:flex;flex-wrap:wrap}.it{width:30%;min-width:92px;margin:4px;border:3px solid;padding:4px;text-align:center;background:#fff}
+.it .g2{font-size:24px;min-height:30px}.it button{font-size:13px;padding:4px 6px}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:2px dashed #bbb;padding:4px;text-align:left}tr.me{background:#fff2a8}
+.big{font-size:56px;margin:18px 0}.toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 14px;z-index:40;max-width:92vw}
+#tm{display:none;position:fixed;inset:0;background:#0b0f1a;color:#7dff9b;z-index:10;text-align:center;padding-top:18vh}
+#tm button{background:#16222f;color:#7dff9b;border-color:#7dff9b;box-shadow:3px 3px 0 #7dff9b}
+.mon-wrap{text-align:center;margin-top:12px}.mon{animation:bob .8s steps(1) infinite}.mon-wrap.dead .mon{animation:shake .4s 1}
+@keyframes bob{50%{transform:translateY(-4px)}}@keyframes shake{25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
+.fig{text-align:center}.fig svg{max-width:100%;height:auto}.qt{white-space:pre-line}
+.cb{width:100%;text-align:left;margin:4px 0}.ok{background:var(--gr)}.no{background:#ff9d9d}
+details.box summary{cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app"><div class="box">불러오는 중… ⏳</div></div>
+<script src="config.js"></script>
+<script type="module" src="app.js"></script>
+<noscript><div class="box">이 게임은 자바스크립트가 켜져 있어야 해요.</div></noscript>
+</body>
+</html>
